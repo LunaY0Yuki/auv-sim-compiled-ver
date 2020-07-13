@@ -28,7 +28,7 @@ Experience = namedtuple('Experience', ('state', 'action', 'next_state', 'reward'
 # define the range between the starting point of the auv and shark
 DIST = 20.0
 
-NUM_OF_EPISODES = 500
+NUM_OF_EPISODES = 1000
 MAX_STEP = 300
 
 NUM_OF_EPISODES_TEST =  1000
@@ -79,6 +79,10 @@ FILTER_IN_UPDATING_NN = True
 
 DEBUG = False
 
+# to limit the terminal output for training over high computing resources
+PLOT_INTERMEDIATE_TESTING = False
+LIMIT_TERMINAL_OUTPUT = True
+
 """
 ============================================================================
 
@@ -126,7 +130,8 @@ def extract_tensors(experiences):
 
 
 def save_model(policy_net, target_net):
-    print("Model Save...")
+    if not LIMIT_TERMINAL_OUTPUT:
+        print("Model Save...")
     torch.save(policy_net.state_dict(), 'checkpoint_policy.pth')
     torch.save(target_net.state_dict(), 'checkpoint_target.pth')
 
@@ -699,17 +704,17 @@ class AuvEnvManager():
         boundary_array = [Motion_plan_state(x=0.0, y=0.0), Motion_plan_state(x = ENV_SIZE, y = ENV_SIZE)]
 
         # self.habitat_grid = HabitatGrid(habitat_bound_x, habitat_bound_y, habitat_bound_size_x, habitat_bound_size_y, HABITAT_SIDE_LENGTH, HABITAT_CELL_SIDE_LENGTH)
-
-        print("===============================")
-        print("Starting Positions")
-        print(auv_init_pos)
-        print(shark_init_pos)
-        print("-")
-        print(obstacle_array)
-        print("-")
-        print("Number of Environment Grid")
-        print(NUM_OF_GRID_CELLS)
-        print("===============================")
+        if not LIMIT_TERMINAL_OUTPUT:
+            print("===============================")
+            print("Starting Positions")
+            print(auv_init_pos)
+            print(shark_init_pos)
+            print("-")
+            print(obstacle_array)
+            print("-")
+            print("Number of Environment Grid")
+            print(NUM_OF_GRID_CELLS)
+            print("===============================")
 
         if DEBUG:
             text = input("stop")
@@ -962,43 +967,43 @@ class DQN():
             bad_choices_array.append(result["bad_choices"])
             bad_choices_over_total_choices_array.append(result["bad_choices_over_total_choices"])
 
-        
-        # begin plotting the graph
-        # plot #1: 
-        #   average total reward vs episodes
-        #   average duration in episodes vs episodes
-        upper_plot_title = "average total reward vs. episodes"
-        upper_plot_ylabel = "average total reward"
+        if PLOT_INTERMEDIATE_TESTING:
+            # begin plotting the graph
+            # plot #1: 
+            #   average total reward vs episodes
+            #   average duration in episodes vs episodes
+            upper_plot_title = "average total reward vs. episodes"
+            upper_plot_ylabel = "average total reward"
 
-        lower_plot_title = "average episode duration vs episodes"
-        lower_plot_ylabel = "avg episode duration (steps)"
+            lower_plot_title = "average episode duration vs episodes"
+            lower_plot_ylabel = "avg episode duration (steps)"
 
-        self.plot_summary_graph(episode_array, avg_total_reward_array, upper_plot_ylabel, upper_plot_title, \
-            avg_episode_duration_array, lower_plot_ylabel, lower_plot_title)
+            self.plot_summary_graph(episode_array, avg_total_reward_array, upper_plot_ylabel, upper_plot_title, \
+                avg_episode_duration_array, lower_plot_ylabel, lower_plot_title)
 
-        # plot #2: 
-        #   success rate vs epsiodes
-        #   success rate (normalized) vs  episodes
-        upper_plot_title = "success rate vs. episodes"
-        upper_plot_ylabel = "success rate (%)"
+            # plot #2: 
+            #   success rate vs epsiodes
+            #   success rate (normalized) vs  episodes
+            upper_plot_title = "success rate vs. episodes"
+            upper_plot_ylabel = "success rate (%)"
 
-        lower_plot_title = "success rate (divided by avg episode duraiton) vs. episodes"
-        lower_plot_ylabel = "success rate (%)"
+            lower_plot_title = "success rate (divided by avg episode duraiton) vs. episodes"
+            lower_plot_ylabel = "success rate (%)"
 
-        self.plot_summary_graph(episode_array, success_rate_array, upper_plot_ylabel, upper_plot_title, \
-            success_rate_array_norm, lower_plot_ylabel, lower_plot_title)
+            self.plot_summary_graph(episode_array, success_rate_array, upper_plot_ylabel, upper_plot_title, \
+                success_rate_array_norm, lower_plot_ylabel, lower_plot_title)
 
-        # plot #2: 
-        #   success rate vs epsiodes
-        #   success rate (normalized) vs  episodes
-        upper_plot_title = "avg number of bad choices by neural net vs. episodes"
-        upper_plot_ylabel = "bad choices"
+            # plot #2: 
+            #   success rate vs epsiodes
+            #   success rate (normalized) vs  episodes
+            upper_plot_title = "avg number of bad choices by neural net vs. episodes"
+            upper_plot_ylabel = "bad choices"
 
-        lower_plot_title = "avg number of bad choices over total choices by neural net vs. episodes"
-        lower_plot_ylabel = "bad choices / total choices"
+            lower_plot_title = "avg number of bad choices over total choices by neural net vs. episodes"
+            lower_plot_ylabel = "bad choices / total choices"
 
-        self.plot_summary_graph(episode_array, bad_choices_array, upper_plot_ylabel, upper_plot_title, \
-            bad_choices_over_total_choices_array, lower_plot_ylabel, lower_plot_title)
+            self.plot_summary_graph(episode_array, bad_choices_array, upper_plot_ylabel, upper_plot_title, \
+                bad_choices_over_total_choices_array, lower_plot_ylabel, lower_plot_title)
 
         
         # print out the result so that we can save for later
@@ -1232,23 +1237,21 @@ class DQN():
                 target_update_counter += 1
 
                 if target_update_counter % TARGET_UPDATE == 0:
-                    print("UPDATE TARGET NETWORK")
+                    if not LIMIT_TERMINAL_OUTPUT:
+                        print("UPDATE TARGET NETWORK")
                     self.target_net.load_state_dict(self.policy_net.state_dict())
 
-            # print("*********************************")
-            # print("final state")
-            # print(state)
-
-            if self.loss_in_eps != []:
-                avg_loss = np.mean(self.loss_in_eps)
-                avg_loss_in_training.append(avg_loss)
-                print("+++++++++++++++++++++++++++++")
-                print("Episode # ", eps, "end with reward: ", score, "total reward: ", eps_reward, "average loss", avg_loss, " used time: ", iteration)
-                print("+++++++++++++++++++++++++++++")
-            else:
-                print("+++++++++++++++++++++++++++++")
-                print("Episode # ", eps, "end with reward: ", score, "total reward: ", eps_reward, "average loss nan", " used time: ", iteration)
-                print("+++++++++++++++++++++++++++++")
+            if not LIMIT_TERMINAL_OUTPUT:
+                if self.loss_in_eps != []:
+                    avg_loss = np.mean(self.loss_in_eps)
+                    avg_loss_in_training.append(avg_loss)
+                    print("+++++++++++++++++++++++++++++")
+                    print("Episode # ", eps, "end with reward: ", score, "total reward: ", eps_reward, "average loss", avg_loss, " used time: ", iteration)
+                    print("+++++++++++++++++++++++++++++")
+                else:
+                    print("+++++++++++++++++++++++++++++")
+                    print("Episode # ", eps, "end with reward: ", score, "total reward: ", eps_reward, "average loss nan", " used time: ", iteration)
+                    print("+++++++++++++++++++++++++++++")
 
             # if eps % TARGET_UPDATE == 0:
             #     print("UPDATE TARGET NETWORK")
@@ -1405,10 +1408,11 @@ class DQN():
                 bad_choices_over_total_choices_array.append(float(self.agent.neural_net_bad_choice) / float(self.agent.neural_net_choice))
             else:
                 bad_choices_over_total_choices_array.append(0.0)
-               
-            print("+++++++++++++++++++++++++++++")
-            print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
-            print("+++++++++++++++++++++++++++++")
+            
+            if not LIMIT_TERMINAL_OUTPUT:  
+                print("+++++++++++++++++++++++++++++")
+                print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
+                print("+++++++++++++++++++++++++++++")
 
             total_reward_array.append(eps_reward)
 
@@ -1438,7 +1442,7 @@ class DQN():
 def main():
     dqn = DQN()
    
-    dqn.train(NUM_OF_EPISODES, MAX_STEP, load_prev_training = False, live_graph_2D = True, use_HER = False)
+    dqn.train(NUM_OF_EPISODES, MAX_STEP, load_prev_training = False, live_graph_2D = False, use_HER = False)
     # dqn.test(NUM_OF_EPISODES_TEST, MAX_STEP_TEST, live_graph_2D = True)
     # dqn.test_q_value_control_auv(NUM_OF_EPISODES_TEST, MAX_STEP_TEST, live_graph_3D = False, live_graph_2D = True)
 
