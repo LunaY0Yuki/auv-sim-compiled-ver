@@ -6,7 +6,7 @@ from matplotlib.widgets import Button
 from matplotlib.widgets import CheckButtons
 import numpy as np
 
-import constants as const
+SIM_TIME_INTERVAL = 0.1
 
 """
 Uses matplotlib to generate live 3D Graph while the simulator is running
