@@ -28,10 +28,10 @@ Experience = namedtuple('Experience', ('state', 'action', 'next_state', 'reward'
 # define the range between the starting point of the auv and shark
 DIST = 20.0
 
-NUM_OF_EPISODES = 1000
+NUM_OF_EPISODES = 10
 MAX_STEP = 300
 
-NUM_OF_EPISODES_TEST =  1000
+NUM_OF_EPISODES_TEST =  10
 MAX_STEP_TEST = 300
 
 N_V = 7
@@ -73,7 +73,7 @@ SAVE_EVERY = 10
 # how many episode should we render the model
 RENDER_EVERY = 100
 # how many episode should we run a test on the model
-TEST_EVERY = 50
+TEST_EVERY = 2
 
 FILTER_IN_UPDATING_NN = True
 
