@@ -750,6 +750,7 @@ class RRTEnv(gym.Env):
         
         return self.reset()
 
+
     def step(self, chosen_grid_cell_idx):
         """
         In each step, we will generate an additional node in the RRT tree.
@@ -840,7 +841,6 @@ class RRTEnv(gym.Env):
         return np.array(has_node_array)
 
     
-
     def calculate_range(self, a_pos, b_pos):
         """
         Calculate the range (distance) between point a and b, specified by their coordinates
@@ -863,24 +863,6 @@ class RRTEnv(gym.Env):
         return np.sqrt(delta_x**2 + delta_y**2)
 
     
-    def within_follow_range(self, auv_pos, shark_pos):
-        """
-        Check if the auv is within FOLLOWING_RADIUS of the shark
-
-        Parameters:
-            auv_pos - an array / a numpy array
-            shark_pos - an array / a numpy array
-                both have the format: [x_pos, y_pos, z_pos, theta]
-        """
-        auv_shark_range = self.calculate_range(auv_pos, shark_pos)
-        if auv_shark_range <= FOLLOWING_RADIUS:
-            if DEBUG:
-                print("Within the following range")
-            return True
-        else:
-            return False
-
-    
     def check_collision(self, auv_pos):
         """
         Check if the auv at the current state is hitting any obstacles
@@ -895,34 +877,7 @@ class RRTEnv(gym.Env):
                 print("Hit an obstacle")
                 return True
         return False
-
-
-    def check_close_to_obstacles(self, auv_pos):
-        """
-        Check if the auv at the current state is close to any obstacles
-        (Within a circular region with radius: obstacle's radius + OBSTACLE_ZONE)
-
-        Parameter:
-            auv_pos - an array / a np array [x, y, z, theta]
-        """
-        for obs in self.obstacle_array:
-            distance = self.calculate_range(auv_pos, obs)
-            # obs[3] indicates the size of the obstacle
-            if distance <= (obs[3] + OBSTACLE_ZONE):
-                if DEBUG: 
-                    print("Close to an obstacles")
-                return True
-        return False
-
-
-    def check_close_to_walls(self, auv_pos, dist_from_walls_array):
-        for dist_from_wall in dist_from_walls_array:
-            if dist_from_wall <= WALL_ZONE:
-                if DEBUG:
-                    print("Close to the wall")
-                return True
-        return False
-    
+ 
 
     def update_num_time_visited_for_habitats(self, habitats_array, visited_habitat_cell):
         """
