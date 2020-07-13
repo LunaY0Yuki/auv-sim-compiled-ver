@@ -264,7 +264,7 @@ class Motion_plan_state():
 """
 ============================================================================
 
-    Class - Habitat Grid
+    Class - Habitat Grid and related classes (Habitat, HabitatCell)
 
 ============================================================================
 """

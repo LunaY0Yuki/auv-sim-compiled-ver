@@ -1,18 +1,23 @@
 import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
+
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.patches import Circle, Rectangle
-import mpl_toolkits.mplot3d.art3d as Art3d
 import copy
 import random
+import math
+import time
 
-from gym_rrt.envs.live3DGraph_rrt_env import Live3DGraph
-from gym_rrt.envs.rrt_dubins import Planner_RRT
-from gym_rrt.envs.motion_plan_state import Motion_plan_state
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.patches as mpatches
+from matplotlib.patches import Circle, Rectangle
+import mpl_toolkits.mplot3d.art3d as Art3d
+from matplotlib.widgets import Button
+from matplotlib.widgets import CheckButtons
+import matplotlib.path as mpath
 
+# TODO: not relevant
 # auv's max speed (unit: m/s)
 AUV_MAX_V = 2.0
 AUV_MIN_V = 0.1
@@ -20,56 +25,27 @@ AUV_MIN_V = 0.1
 #   TODO: Currently, the track_way_point function has K_P == 1, so this is the range for w. Might change in the future?
 AUV_MAX_W = np.pi/8
 
-# shark's speed (unit: m/s)
-SHARK_MIN_V = 0.5
-SHARK_MAX_V = 1
-SHARK_MAX_W = np.pi/8
-
 RRT_PLANNER_FREQ = 10
-
-# the maximum range between the auv and shark to be considered that the auv has reached the shark
-END_GAME_RADIUS = 3.0
-FOLLOWING_RADIUS = 50.0
-
-# the auv will receive an immediate negative reward if it is close to the obstacles
-OBSTACLE_ZONE = 0.0
-WALL_ZONE = 10.0
-
-# constants for reward (old)
-R_COLLIDE = -10.0       # when the auv collides with an obstacle
-R_ARRIVE = 10.0         # when the auv arrives at the target
-R_RANGE = 0.1           # this is a scaler to help determine immediate reward at a time step
-R_TIME = -0.01          # negative reward (the longer for the auv to reach the goal, the larger this will be)
-
-# constants for reward with habitats
-R_OUT_OF_BOUND = -10000
-R_CLOSE_TO_BOUND = -10
-
-R_COLLIDE_100 = -10000
-R_CLOSE_TO_OBS = -10
-
-R_MAINTAIN_DIST = 5
-
-R_NEW_HAB = 10
-R_IN_HAB = 0
-R_IN_HAB_TOO_LONG = -10
-
-# determine how quickly the reward will decay when the auv stays in an habitat
-# decay rate should be between 0 and 1
-R_HAB_DECAY_RATE = 0.01
-R_HAB_INIT = 4
-R_HAB_OFFSET = 2
 
 # size of the observation space
 # the coordinates of the observation space will be based on 
 #   the ENV_SIZE and the inital position of auv and the shark
 # (unit: m)
 ENV_SIZE = 500.0
+OBSTACLE_ZONE = 0.0
 
 DEBUG = False
+
 # if PLOT_3D = False, plot the 2d version
 PLOT_3D = False
 
+"""
+============================================================================
+
+    Helper Functions
+
+============================================================================
+"""
 def angle_wrap(ang):
     """
     Takes an angle in radians & sets it between the range of -pi to pi
@@ -89,7 +65,597 @@ def angle_wrap(ang):
         ang += (2 * np.pi)
         return angle_wrap(ang)
 
+"""
+============================================================================
 
+    Class - Live3DGraph (for plotting)
+
+============================================================================
+"""
+SIM_TIME_INTERVAL = 0.1
+
+class Live3DGraph:
+    def __init__(self, plot_3D):
+        """
+        Uses matplotlib to generate live 3D Graph while the simulator is running
+
+        Able to draw the auv as well as multiple sharks
+        """
+        self.shark_array = []
+
+        # array of pre-defined colors, 
+        # so we can draw sharks with different colors
+        self.colors = ['b', 'g', 'c', 'm', 'y', 'k']
+
+        self.arrow_length_ratio = 0.1
+
+        # initialize the 2d graph
+        self.fig_2D = plt.figure(figsize = [13, 10])
+        self.ax_2D = self.fig_2D.add_subplot(111)
+
+        # an array of the labels that will appear in the legend
+        # TODO: labels and legends still have minor bugs
+        self.labels = ["auv"]
+
+    def plot_obstacles_2D(self, obstacle_array, dangerous_zone_radius):
+        """
+        Plot obstacles as sphere based on location and size indicated by the "obstacle_array"
+
+        Parameter - obstacle_array
+            an array of motion_plan_states that represent the obstacles's
+                position and size
+        """
+        for obs in obstacle_array:
+            # TODO: fow now, plot circles instead of spheres to make plotting faster
+            obstacle = Circle((obs.x,obs.y), radius = obs.size, color = '#000000', fill=False)
+            self.ax_2D.add_patch(obstacle)
+
+            if dangerous_zone_radius != 0.0:
+                dangerous_zone = Circle((obs.x,obs.y), radius = obs.size + dangerous_zone_radius, color='#c42525', fill=False)
+                self.ax_2D.add_patch(dangerous_zone)
+
+"""
+============================================================================
+
+    Class - Motion Plan State
+
+============================================================================
+"""
+
+class Motion_plan_state:
+    def __init__(self,x,y,z=0,theta=0,v=0,w=0, traj_time_stamp=0, plan_time_stamp=0, size=0):
+        """a wrapper class to represent states for motion planning
+        including x, y, z, theta, v, w, and time stamp"""
+        self.x = x
+        self.y = y
+        self.z = z
+        self.theta = theta
+        self.v = v #linear velocity
+        self.w = w #angulr velocity
+        self.traj_time_stamp = traj_time_stamp
+        self.plan_time_stamp = plan_time_stamp
+        self.size = size
+        self.parent = None
+        self.path = []
+        self.length = 0
+        self.cost = []
+
+    def __repr__(self):
+        # goal location in 2D
+        if self.z == 0 and self.theta == 0 and self.v == 0 and self.w == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+            return ("MPS: [x=" + str(self.x) + ", y="  + str(self.y) + "]")
+        # goal location in 3D
+        elif self.theta == 0 and self.v == 0 and self.w == 0 and self.size == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) + "]"
+        # obstable location in 3D
+        elif self.size != 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+            return "MPS: [x=" + str(self.x) + ", y=" + str(self.y) + ", z=" + str(self.z) + ", size=" + str(self.size) + "]"
+        # location for Dubins Path in 2D
+        elif self.z ==0 and self.v == 0 and self.w == 0:
+            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", theta=" + str(self.theta) + ", trag_time=" + str(self.traj_time_stamp) + ", plan_time=" + str(self.plan_time_stamp) + "]"
+        else: 
+            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) +\
+                ", theta=" + str(self.theta)  + ", v=" + str(self.v) + ", w=" + str(self.w) +\
+                ", trag_time=" + str(self.traj_time_stamp) +  ", plan_time="+  str(self.plan_time_stamp) + "]"
+
+    def __str__(self):
+        # goal location in 2D
+        if self.z == 0 and self.theta == 0 and self.v == 0 and self.w == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+            return ("MPS: [x=" + str(self.x) + ", y="  + str(self.y) + "]")
+        # goal location in 3D
+        elif self.theta == 0 and self.v == 0 and self.w == 0 and self.size == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) + "]"
+        # obstable location in 3D
+        elif self.size != 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+            return "MPS: [x=" + str(self.x) + ", y=" + str(self.y) + ", z=" + str(self.z) + ", size=" + str(self.size) + "]"
+        # location for Dubins Path in 2D
+        elif self.z ==0 and self.v == 0 and self.w == 0:
+            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", theta=" + str(self.theta) + ", trag_time=" + str(self.traj_time_stamp) + ", plan_time=" + str(self.plan_time_stamp) + "]"
+        else: 
+            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) +\
+                ", theta=" + str(self.theta)  + ", v=" + str(self.v) + ", w=" + str(self.w) +\
+                ", trag_time=" + str(self.traj_time_stamp) +  ", plan_time="+  str(self.plan_time_stamp) + "]"
+
+"""
+============================================================================
+
+    Class - Grid Cell RRT (Helper Class for Planner_RRT)
+
+============================================================================
+"""
+class Grid_cell_RRT:
+    """
+    A wrapper class to represent state of a grid cell in RRT planning
+    """
+    def __init__(self, x, y, side_length = 1):
+        """
+        Parameters:
+            x - x coordinates of the bottom left corner of the grid cell
+            y - y coordinates of the bottom left corner of the grid cell
+        """
+        self.x = x
+        self.y = y
+        self.side_length = side_length
+        self.node_list = []
+
+    def has_node(self):
+        """
+        Return:
+            True - if there is any RRT nodes in the the grid cell
+        """
+        return (not (self.node_list == []))
+
+    def __repr__(self):
+        return "RRT Grid: [x=" + str(self.x) + ", y="  + str(self.y) + ", side length=" + str(self.side_length) +\
+             "], node list: " + str(self.node_list)
+
+    def __str__(self):
+        return "RRT Grid: [x=" + str(self.x) + ", y="  + str(self.y) + ", side length=" + str(self.side_length) +\
+             "], node list: " + str(self.node_list)
+
+"""
+============================================================================
+
+    Class - Planner RRT
+
+============================================================================
+"""
+class Planner_RRT:
+    """
+    Class for RRT planning
+    """
+    def __init__(self, start, goal, boundary, obstacles, habitats, exp_rate = 1, dist_to_end = 2, diff_max = 0.5, freq = 50, cell_side_length = 2):
+        '''
+        Parameters:
+            start - initial Motion_plan_state of AUV, [x, y, z, theta, v, w, time_stamp]
+            goal - Motion_plan_state of the shark, [x, y, z]
+            boundary - max & min Motion_plan_state of the configuration space [[x_min, y_min, z_min],[x_max, y_max, z_max]]
+            obstacles - array of Motion_plan_state, representing obstacles [[x1, y1, z1, size1], [x2, y2, z2, size2] ...]
+        '''
+        # initialize start, goal, obstacle, boundaryfor path planning
+        self.start = start
+        self.goal = goal
+
+        self.boundary_point = boundary
+        self.cell_side_length = cell_side_length
+
+        # discretize the environment into grids
+        self.discretize_env(self.cell_side_length)
+        
+        self.occupied_grid_cells_array = []
+
+        # add the start node to the grid
+        self.add_node_to_grid(self.start)
+        
+        self.obstacle_list = obstacles
+        # testing data for habitats
+        self.habitats = habitats
+        
+        # a list of motion_plan_state
+        self.mps_list = [self.start]
+
+        # setting parameters for path planning
+        self.exp_rate = exp_rate
+        self.dist_to_end = dist_to_end
+        self.diff_max = diff_max
+        self.freq = freq
+
+        self.t_start = time.time()
+
+
+    def discretize_env(self, cell_side_length):
+        """
+        Separate the environment into grid
+        """
+        env_btm_left_corner = self.boundary_point[0]
+        env_top_right_corner = self.boundary_point[1]
+        env_width = env_top_right_corner.x - env_btm_left_corner.x
+        env_height = env_top_right_corner.y - env_btm_left_corner.y
+
+        self.env_grid = []
+
+        for row in range(int(env_height) // int(cell_side_length)):
+            self.env_grid.append([])
+            for col in range(int(env_width) // int(cell_side_length)):
+                env_cell_x = env_btm_left_corner.x + col * cell_side_length
+                env_cell_y = env_btm_left_corner.y + row * cell_side_length
+                self.env_grid[row].append(Grid_cell_RRT(env_cell_x, env_cell_y, side_length = cell_side_length))
+
+
+    def print_env_grid(self):
+        """
+        Print the environment grid
+            - Each grid cell will take up a line
+            - Rows will be separated by ----
+        """
+        for row in self.env_grid:
+            for grid_cell in row:
+                print(grid_cell)
+            print("----")
+
+    
+    def add_node_to_grid(self, mps):
+        """
+
+        Parameter:
+            mps - a motion plan state object, represent the RRT node that we are trying add to the grid
+        """
+        hab_index_row = int(mps.y / self.cell_side_length)
+        hab_index_col = int(mps.x / self.cell_side_length)
+
+        if hab_index_row >= len(self.env_grid):
+            print("auv is out of the habitat environment bound verticaly")
+            return
+        
+        if hab_index_col >= len(self.env_grid[0]):
+            print("auv is out of the habitat environment bound horizontally")
+            return
+
+        self.env_grid[hab_index_row][hab_index_col].node_list.append(mps)
+
+        # add the grid cell into the occupied grid cell array if it hasn't been added
+        if len(self.env_grid[hab_index_row][hab_index_col].node_list) == 1:
+            self.occupied_grid_cells_array.append((hab_index_row, hab_index_col))
+
+
+    def planning(self, max_step = 200, min_length = 250, plan_time=True):
+        """
+        RRT path planning with a specific goal
+
+        path planning will terminate when:
+            1. the path has reached a goal
+            2. the maximum planning time has passed
+
+        Parameters:
+            start -  an np array
+            animation - flag for animation on or off
+
+        """
+        path = []
+
+        # self.init_live_graph()
+
+        step = 0
+    
+        for _ in range(max_step):
+
+            # pick the row index and col index for the grid cell where the tree will get expanded
+            grid_cell_row, grid_cell_col = random.choice(self.occupied_grid_cells_array)
+
+            done, path = self.generate_one_node(self.env_grid[grid_cell_row][grid_cell_col])
+
+            # if (not done) and path != None:
+            #     self.draw_graph(path)
+            # elif done:
+            #     plt.plot([mps.x for mps in path], [mps.y for mps in path], '-r')
+            step += 1
+
+            if done:
+                break
+
+        return path, step
+
+
+    def generate_one_node(self, grid_cell, min_length=250):
+        """
+        Based on the grid cell, randomly pick a node to expand the tree from from
+
+        Return:
+            done - True if we have found a collision-free path from the start to the goal
+            path - the collision-free path if there is one, otherwise it's null
+            new_node
+        """
+        if grid_cell.node_list == []:
+            print("hmmmm invalid grid cell pic")     
+            print(grid_cell)
+            print("node list")
+            print(grid_cell.node_list)
+            text = input("stop")
+            return False, None
+        
+        # randomly pick a node from the grid cell   
+        rand_node = random.choice(grid_cell.node_list)
+
+        new_node = self.steer(rand_node, self.dist_to_end, self.diff_max, self.freq)
+
+        valid_new_node = False
+        
+        # only add the new node if it's collision free
+        if self.check_collision_free(new_node, self.obstacle_list):
+            new_node.parent = rand_node
+            new_node.length += rand_node.length
+            self.mps_list.append(new_node)
+            self.add_node_to_grid(new_node)
+            valid_new_node = True
+
+        final_node = self.connect_to_goal_curve_alt(self.mps_list[-1], self.exp_rate)
+
+        # if we can create a path between the newly generated node and the goal
+        if self.check_collision_free(final_node, self.obstacle_list):
+            final_node.parent = self.mps_list[-1]
+            path = self.generate_final_course(final_node)   
+            return True, path
+        
+        if valid_new_node:
+            return False, new_node
+        else:
+            return False, None
+
+
+    def steer(self, mps, dist_to_end, diff_max, freq, velocity=1, traj_time_stamp=False):
+        """
+        """
+        if traj_time_stamp:
+            new_mps = Motion_plan_state(mps.x, mps.y, theta = mps.theta, traj_time_stamp=mps.traj_time_stamp)
+        else:
+            new_mps = Motion_plan_state(mps.x, mps.y, theta = mps.theta, plan_time_stamp=time.time()-self.t_start, traj_time_stamp=mps.traj_time_stamp)
+
+        new_mps.path = [mps]
+
+        n_expand = random.uniform(0, freq)
+        n_expand = math.floor(n_expand/1)
+        for _ in range(n_expand):
+            #setting random parameters
+            dist = random.uniform(0, dist_to_end)  # setting random range
+            diff = random.uniform(-diff_max, diff_max)  # setting random range
+
+            if abs(dist) > abs(diff):
+                s1 = dist + diff
+                s2 = dist - diff
+                radius = (s1 + s2)/(-s1 + s2)
+                phi = (s1 + s2)/ (2 * radius)
+                
+                ori_theta = new_mps.theta
+                new_mps.theta += phi
+                delta_x = radius * (math.sin(new_mps.theta) - math.sin(ori_theta))
+                delta_y = radius * (-math.cos(new_mps.theta) + math.cos(ori_theta))
+                new_mps.x += delta_x
+                new_mps.y += delta_y
+                if traj_time_stamp:
+                    new_mps.traj_time_stamp += (math.sqrt(delta_x ** 2 + delta_y ** 2)) / velocity
+                else:
+                    new_mps.plan_time_stamp = time.time() - self.t_start
+                    new_mps.traj_time_stamp += (math.sqrt(delta_x ** 2 + delta_y ** 2)) / velocity
+                new_mps.path.append(Motion_plan_state(new_mps.x, new_mps.y, theta=new_mps.theta, traj_time_stamp=new_mps.traj_time_stamp, plan_time_stamp=new_mps.plan_time_stamp))
+
+        new_mps.path[0] = mps
+
+        return new_mps
+
+
+    def connect_to_goal(self, mps, exp_rate, dist_to_end=float("inf")):
+        new_mps = Motion_plan_state(mps.x, mps.y)
+        d, theta = self.get_distance_angle(new_mps, self.goal)
+
+        new_mps.path = [new_mps]
+
+        if dist_to_end > d:
+            dist_to_end = d
+
+        n_expand = math.floor(dist_to_end / exp_rate)
+
+        for _ in range(n_expand):
+            new_mps.x += exp_rate * math.cos(theta)
+            new_mps.y += exp_rate * math.sin(theta)
+            new_mps.path.append(Motion_plan_state(new_mps.x, new_mps.y))
+
+        d, _ = self.get_distance_angle(new_mps, self.goal)
+        if d <= dist_to_end:
+            new_mps.path.append(self.goal)
+        
+        new_mps.path[0] = mps
+
+        return new_mps
+    
+
+    def generate_final_course(self, mps):
+        path = [mps]
+        mps = mps
+        while mps.parent is not None:
+            reversed_path = reversed(mps.path)
+            for point in reversed_path:
+                path.append(point)
+            mps = mps.parent
+        #path.append(mps)
+
+        return path
+
+    
+    def init_live_graph(self):
+        _, self.ax = plt.subplots()
+
+        for row in self.env_grid:
+            for grid_cell in row:
+                cell = Rectangle((grid_cell.x, grid_cell.y), width=grid_cell.side_length, height=grid_cell.side_length, color='#2a753e', fill=False)
+                self.ax.add_patch(cell)
+        
+        for obstacle in self.obstacle_list:
+            self.plot_circle(obstacle.x, obstacle.y, obstacle.size)
+
+        self.ax.plot(self.start.x, self.start.y, "xr")
+        self.ax.plot(self.goal.x, self.goal.y, "xr")
+
+    
+    def draw_graph(self, rnd=None):
+        # plt.clf()  # if we want to clear the plot
+        # for stopping simulation with the esc key.
+        plt.gcf().canvas.mpl_connect('key_release_event',
+                                     lambda event: [exit(0) if event.key == 'escape' else None])
+        if rnd != None:
+            # self.ax.plot(rnd.x, rnd.y, ",", color="#000000")
+
+            self.ax.plot([point.x for point in rnd.path], [point.y for point in rnd.path], '-', color="#000000")
+        else:
+            for mps in self.mps_list:
+                if mps.parent:
+                    plt.plot([point.x for point in mps.path], [point.y for point in mps.path], '-g')
+
+        plt.axis("equal")
+
+        plt.pause(1)
+
+
+    @staticmethod
+    def plot_circle(x, y, size, color="-b"):  # pragma: no cover
+        deg = list(range(0, 360, 5))
+        deg.append(0)
+        xl = [x + size * math.cos(np.deg2rad(d)) for d in deg]
+        yl = [y + size * math.sin(np.deg2rad(d)) for d in deg]
+        plt.plot(xl, yl, color)
+    
+    
+    def connect_to_goal_curve_alt(self, mps, exp_rate):
+        new_mps = Motion_plan_state(mps.x, mps.y, theta=mps.theta, traj_time_stamp=mps.traj_time_stamp)
+        theta_0 = new_mps.theta
+        _, theta = self.get_distance_angle(mps, self.goal)
+        diff = theta - theta_0
+        diff = angle_wrap(diff)
+        
+        if abs(diff) > math.pi / 2:
+            return
+
+        #polar coordinate
+        r_G = math.hypot(self.goal.x - new_mps.x, self.goal.y - new_mps.y)
+        phi_G = math.atan2(self.goal.y - new_mps.y, self.goal.x - new_mps.x)
+
+
+        # arc
+        if phi_G - new_mps.theta != 0:
+            phi = 2 * angle_wrap(phi_G - new_mps.theta)
+            # prevent a dividing by 0 error
+        else:
+            return
+        
+        if math.sin(phi_G - new_mps.theta) != 0:
+            radius = r_G / (2 * math.sin(phi_G - new_mps.theta))
+        else:
+            return
+
+        length = radius * phi
+        if phi > math.pi:
+            phi -= 2 * math.pi
+            length = -radius * phi
+        elif phi < -math.pi:
+            phi += 2 * math.pi
+            length = -radius * phi
+        new_mps.length += length
+
+        ang_vel = phi / (length / exp_rate)
+
+        #center of rotation
+        x_C = new_mps.x - radius * math.sin(new_mps.theta)
+        y_C = new_mps.y + radius * math.cos(new_mps.theta)
+
+        n_expand = math.floor(length / exp_rate)
+        for i in range(n_expand+1):
+            new_mps.x = x_C + radius * math.sin(ang_vel * i + theta_0)
+            new_mps.y = y_C - radius * math.cos(ang_vel * i + theta_0)
+            new_mps.theta = ang_vel * i + theta_0
+            new_mps.path.append(Motion_plan_state(new_mps.x, new_mps.y, theta = new_mps.theta, plan_time_stamp=time.time()-self.t_start))
+        
+        return new_mps
+
+
+    def check_collision_free(self, mps, obstacleList):
+        """
+        Collision
+        Return:
+            True -  if the new node (as a motion plan state) and its path is collision free
+            False - otherwise
+        """
+        if mps is None:
+            return False
+
+        dList = []
+        for obstacle in obstacleList:
+            for point in mps.path:
+               d, _ = self.get_distance_angle(obstacle, point)
+               dList.append(d) 
+
+            if min(dList) <= obstacle.size:
+                return False  # collision
+    
+        for point in mps.path:
+            if not self.check_within_boundary(point):
+                return False
+
+        return True  # safe
+    
+
+    def check_collision_obstacle(self, mps, obstacleList):
+        for obstacle in obstacleList:
+            d, _ = self.get_distance_angle(obstacle, mps)
+            if d <= obstacle.size:
+                return False
+        return True
+
+
+    def check_within_boundary(self, mps):
+        """
+        Warning: 
+            For a rectangular environment only
+
+        Return:
+            True - if it's within the environment boundary
+            False - otherwise
+        """
+        env_btm_left_corner = self.boundary_point[0]
+        env_top_right_corner = self.boundary_point[1]
+
+        within_x_bound = (mps.x >= env_btm_left_corner.x) and (mps.x <= env_top_right_corner.x)
+        within_y_bound = (mps.y >= env_btm_left_corner.y) and (mps.y <= env_top_right_corner.y)
+
+        return (within_x_bound and within_y_bound)
+
+
+    def get_distance_angle(self, start_mps, end_mps):
+        """
+        Return
+            - the range and 
+            - the bearing between 2 points, represented as 2 Motion_plan_states
+        """
+        dx = end_mps.x-start_mps.x
+        dy = end_mps.y-start_mps.y
+        #dz = end_mps.z-start_mps.z
+        dist = math.sqrt(dx**2 + dy**2)
+        theta = math.atan2(dy,dx)
+        return dist, theta
+    
+
+    def cal_length(self, path):
+        length = 0
+        for i in range(1, len(path)):
+            length += math.sqrt((path[i].x-path[i-1].x)**2 + (path[i].y-path[i-1].y)**2)
+        return length
+
+
+"""
+============================================================================
+
+    Class - RRT Env (Open AI Gym Environment)
+
+============================================================================
+"""
 class RRTEnv(gym.Env):
     # possible render modes: human, rgb_array (creates image for making videos), ansi (string)
     metadata = {'render.modes': ['human']}
@@ -255,6 +821,7 @@ class RRTEnv(gym.Env):
 
         return np.array(rrt_grid_1D_array)
 
+
     def generate_rrt_grid_has_node_array (self, rrt_grid):
         """
         Parameter:
@@ -273,6 +840,7 @@ class RRTEnv(gym.Env):
         return np.array(has_node_array)
 
     
+
     def calculate_range(self, a_pos, b_pos):
         """
         Calculate the range (distance) between point a and b, specified by their coordinates
@@ -383,179 +951,6 @@ class RRTEnv(gym.Env):
             new_habitats_array[habitat_index][3] += 1
         
         return new_habitats_array
-
-
-    def get_range_reward(self, auv_pos, shark_pos, old_range):
-        """
-        Return the reward that the auv gets at a specific state (at a specific time step)
-
-        The condition is only based on:
-            - whether the auv has maintained a FOLLOW_DIST with the shark
-            - whether the auv has hit an obstacle
-            - the range between the auv and the shark
-        """
-        if self.within_habitat_env(auv_pos, shark_pos):
-            return R_MAINTAIN_DIST
-        elif self.check_collision(auv_pos):
-            return R_COLLIDE
-        else:
-            new_range = self.calculate_range(auv_pos, shark_pos)
-            # if auv has gotten closer to the shark, will receive positive reward
-            #   else, receive negative reward
-            range_diff = old_range - new_range
-            
-            reward = R_RANGE * range_diff
-            
-            return reward
-
-
-    def get_reward_with_habitats(self, auv_pos, shark_pos, old_range, habitats_array, visited_habitat_index_array):
-        """
-        Return the reward that the auv gets at a specific state (at a specific time step)
-
-        The condition is only based on:
-            - whether the auv has hit an obstacle
-            - whether the auv is close to an obstacle
-            - whether the auv is within a FOLLOW_DIST with the shark
-            - whether the auv is visiting any habitat
-                - Note: the reward for visiting any habitat will gradually decrease as the auv spends more time in a habitat
-            - the range between the auv and the shark
-        
-        TODO: not updated for habitat grid yet
-        """
-        # if the auv collides with an obstacle
-        if self.check_collision(auv_pos):
-            return R_COLLIDE_100
-        elif self.check_close_to_obstacles(auv_pos):
-            return R_CLOSE_TO_OBS
-        # if the auv maintain FOLLOW_DISTANCE with the shark
-        elif self.within_follow_range(auv_pos, shark_pos):
-            if DEBUG:
-                print("following shark")
-            reward = R_MAINTAIN_DIST
-
-            # if the auv has visited any habitat in this time step
-            for hab_idx in visited_habitat_index_array:
-                hab = habitats_array[hab_idx]
-                num_of_time_visited = hab[3]
-                if num_of_time_visited == 1:
-                    self.visited_unique_habitat_count += 1
-                # reward will decrease as the number of times that auv spent in the habitat increases
-                reward += R_HAB_INIT * (1 - R_HAB_DECAY_RATE) ** (num_of_time_visited) - R_HAB_OFFSET
-            return reward
-        else:
-            if DEBUG:
-                print("else case in reward")
-            new_range = self.calculate_range(auv_pos, shark_pos)
-            # if auv has gotten closer to the shark, will receive positive reward
-            #   else, receive negative reward
-            range_diff = old_range - new_range
-            
-            reward = R_RANGE * range_diff
-            
-            return reward
-
-
-    def get_reward_with_habitats_no_decay(self, auv_pos, shark_pos, old_range, habitats_array, visited_habitat_cell):
-        """
-        Return the reward that the auv gets at a specific state (at a specific time step)
-
-        The condition is only based on:
-            - whether the auv has hit an obstacle
-            - whether the auv is close to an obstacle
-            - whether the auv is within a FOLLOW_DIST with the shark
-            - whether the auv is visiting any new habitat
-            - the range between the auv and the shark
-        """
-        # if the auv collides with an obstacle
-        if not self.habitat_grid.within_habitat_env(self.state['auv_pos']):
-            return R_OUT_OF_BOUND
-        elif self.check_collision(auv_pos):
-            return R_COLLIDE_100
-        elif self.check_close_to_obstacles(auv_pos):
-            return R_CLOSE_TO_OBS
-        # if the auv maintain FOLLOW_DISTANCE with the shark
-        elif self.within_follow_range(auv_pos, shark_pos):
-            reward = R_MAINTAIN_DIST
-
-            if visited_habitat_cell != False:
-                # if the auv has visited any habitat in this time step
-                hab_idx = visited_habitat_cell.habitat_id
-                hab = habitats_array[hab_idx]
-                num_of_time_visited = hab[3]
-                # when the habitat is visited for the first time
-                if num_of_time_visited == 1:
-                    if DEBUG:
-                        print("visit new habitat")
-                    self.visited_unique_habitat_count += 1
-                    reward += R_NEW_HAB
-                elif num_of_time_visited > 1:
-                    reward += R_IN_HAB
-            
-            return reward
-        else:
-            if DEBUG:
-                print("else case in reward")
-            new_range = self.calculate_range(auv_pos, shark_pos)
-            # if auv has gotten closer to the shark, will receive positive reward
-            #   else, receive negative reward
-            range_diff = old_range - new_range
-            
-            reward = R_RANGE * range_diff
-
-            if visited_habitat_cell != False:
-                # if the auv has visited any habitat in this time step
-                hab_idx = visited_habitat_cell.habitat_id
-                hab = habitats_array[hab_idx]
-                num_of_time_visited = hab[3]
-                # when the habitat is visited for the first time
-                if num_of_time_visited == 1:
-                    if DEBUG:
-                        print("visit new habitat")
-                    self.visited_unique_habitat_count += 1
-                    reward += R_NEW_HAB
-                elif num_of_time_visited > 1:
-                    reward += R_IN_HAB
-            
-            return reward
-
-    
-    def get_reward_with_habitats_no_shark(self, auv_pos, habitats_array, visited_habitat_cell, dist_from_walls_array = []):
-        """
-        Return the reward that the auv gets at a specific state (at a specific time step)
-
-        The condition is only based on:
-            - whether the auv has hit an obstacle
-            - whether the auv is close to an obstacle
-            - whether the auv is within a FOLLOW_DIST with the shark
-            - whether the auv is visiting any new habitat
-            - the range between the auv and the shark
-        """
-        # if the auv collides with an obstacle
-        if not self.habitat_grid.within_habitat_env(self.state['auv_pos']):
-            return R_OUT_OF_BOUND
-        elif self.check_collision(auv_pos):
-            return R_COLLIDE_100
-        else:
-            if DEBUG:
-                print("else case in reward")
-            reward = 0
-
-            if visited_habitat_cell != False:
-                # if the auv has visited any habitat in this time step
-                hab_idx = visited_habitat_cell.habitat_id
-                hab = habitats_array[hab_idx]
-                num_of_time_visited = hab[3]
-                # when the habitat is visited for the first time
-                if num_of_time_visited == 1:
-                    if DEBUG:
-                        print("visit new habitat")
-                    self.visited_unique_habitat_count += 1
-                    reward += R_NEW_HAB
-                elif num_of_time_visited >= 50:
-                    reward += R_IN_HAB_TOO_LONG
-            
-            return reward
     
 
     def reset(self):
