@@ -796,7 +796,6 @@ class RRTEnv(gym.Env):
             reward = -path_length
         elif t == max_step - 1 and (not done) and type(path) != list:
             # did not find a path
-            print("did not find a path")
             reward = R_NO_PATH
         else:
             # intermediate planning does not give any reward

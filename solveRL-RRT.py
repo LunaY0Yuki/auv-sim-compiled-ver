@@ -620,7 +620,7 @@ class Agent():
             self.rate = EPS_END
         else:
             self.rate = self.strategy.get_exploration_rate(self.current_step)
-            print(self.rate)
+            
             # as the number of steps increases, the exploration rate will decrease
             self.current_step += 1
 
