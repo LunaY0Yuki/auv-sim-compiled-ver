@@ -34,6 +34,11 @@ RRT_PLANNER_FREQ = 10
 ENV_SIZE = 500.0
 OBSTACLE_ZONE = 0.0
 
+# parameters for reward
+R_FOUND_PATH = 20000
+R_CREATE_NODE = 0
+R_INVALID_NODE = -2
+
 DEBUG = False
 
 # if PLOT_3D = False, plot the 2d version

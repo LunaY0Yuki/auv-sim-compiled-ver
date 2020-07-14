@@ -31,7 +31,7 @@ DIST = 20.0
 NUM_OF_EPISODES = 1000
 MAX_STEP = 300
 
-NUM_OF_EPISODES_TEST =  1000
+NUM_OF_EPISODES_TEST =  50
 MAX_STEP_TEST = 300
 
 N_V = 7
@@ -41,7 +41,7 @@ GAMMA = 0.999
 
 EPS_START = 1
 EPS_END = 0.05
-EPS_DECAY = 0.001
+EPS_DECAY = 0.000075
 
 LEARNING_RATE = 0.001
 
@@ -78,6 +78,9 @@ TEST_EVERY = 50
 FILTER_IN_UPDATING_NN = True
 
 DEBUG = False
+
+RAND_PICK = False
+RAND_PICK_RATE = 0.5
 
 # to limit the terminal output for training over high computing resources
 PLOT_INTERMEDIATE_TESTING = False
@@ -600,7 +603,7 @@ class Agent():
         return index_to_pick
 
 
-    def select_action(self, state, policy_net):
+    def select_action(self, state, policy_net, testing = False):
         """
         Pick an action (index to select from array of options for v and from array of options for w)
 
@@ -612,9 +615,14 @@ class Agent():
             a tensor representing the index for v action and the index for w action
                 format: tensor([v_index, w_index])
         """
-        self.rate = self.strategy.get_exploration_rate(self.current_step)
-        # as the number of steps increases, the exploration rate will decrease
-        self.current_step += 1
+        if testing:
+            # if we are doing intermediate testing
+            self.rate = EPS_END
+        else:
+            self.rate = self.strategy.get_exploration_rate(self.current_step)
+
+            # as the number of steps increases, the exploration rate will decrease
+            self.current_step += 1
 
         index_to_pick = self.generate_index_to_pick(state["has_node"])
 
@@ -1388,7 +1396,7 @@ class DQN():
             self.agent.neural_net_choice = 0
 
             for t in range(1, max_step):
-                chosen_grid_cell_index = self.agent.select_action(state, self.policy_net)
+                chosen_grid_cell_index = self.agent.select_action(state, self.policy_net, testing = True)
 
                 reward = self.em.take_action(chosen_grid_cell_index)
 
