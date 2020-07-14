@@ -906,7 +906,7 @@ class DQN():
         Load already trained neural network
         """
         print("Loading previously trained neural network...")
-        self.agent.strategy.start = EPS_DECAY + 0.001
+        self.agent.strategy.start = EPS_END
         self.policy_net.load_state_dict(torch.load('checkpoint_policy.pth'))
         self.target_net.load_state_dict(torch.load('checkpoint_target.pth'))
 
