@@ -80,11 +80,11 @@ FILTER_IN_UPDATING_NN = True
 DEBUG = False
 
 RAND_PICK = False
-RAND_PICK_RATE = 0.5
+RAND_PICK_RATE = 0.75
 
 # to limit the terminal output for training over high computing resources
 PLOT_INTERMEDIATE_TESTING = False
-LIMIT_TERMINAL_OUTPUT = True
+LIMIT_TERMINAL_OUTPUT = False
 
 """
 ============================================================================
@@ -620,7 +620,7 @@ class Agent():
             self.rate = EPS_END
         else:
             self.rate = self.strategy.get_exploration_rate(self.current_step)
-
+            print(self.rate)
             # as the number of steps increases, the exploration rate will decrease
             self.current_step += 1
 
@@ -758,7 +758,7 @@ class AuvEnvManager():
             self.env.live_graph.ax_2D.clear()
 
 
-    def take_action(self, chosen_grid_cell_index):
+    def take_action(self, chosen_grid_cell_index, t, max_step):
         """
         Parameter: 
             action - tensor of the format: tensor([v_index, w_index])
@@ -768,7 +768,7 @@ class AuvEnvManager():
         chosen_grid_cell_index = chosen_grid_cell_index.item()
         # we only care about the reward and whether or not the episode has ended
         # action is a tensor, so item() returns the value of a tensor (which is just a number)
-        self.current_state, reward, self.done, _ = self.env.step(chosen_grid_cell_index)
+        self.current_state, reward, self.done, _ = self.env.step(chosen_grid_cell_index, t, max_step)
 
         if DEBUG:
             print("=========================")
@@ -1189,7 +1189,7 @@ class DQN():
 
                 action_array.append(chosen_grid_cell_index)
 
-                score = self.em.take_action(chosen_grid_cell_index)
+                score = self.em.take_action(chosen_grid_cell_index, t, max_step)
                 eps_reward += score.item()
                 reward_array.append(score)
 
@@ -1329,7 +1329,7 @@ class DQN():
             for t in range(1, max_step):
                 chosen_grid_cell_index = self.agent.select_action(state, self.policy_net)
 
-                reward = self.em.take_action(chosen_grid_cell_index)
+                reward = self.em.take_action(chosen_grid_cell_index, t, max_step)
 
                 eps_reward += reward.item()
 
@@ -1398,7 +1398,7 @@ class DQN():
             for t in range(1, max_step):
                 chosen_grid_cell_index = self.agent.select_action(state, self.policy_net, testing = True)
 
-                reward = self.em.take_action(chosen_grid_cell_index)
+                reward = self.em.take_action(chosen_grid_cell_index, t, max_step)
 
                 eps_reward += reward.item()
 
@@ -1450,7 +1450,7 @@ class DQN():
 def main():
     dqn = DQN()
    
-    dqn.train(NUM_OF_EPISODES, MAX_STEP, load_prev_training = False, live_graph_2D = False, use_HER = False)
+    dqn.train(NUM_OF_EPISODES, MAX_STEP, load_prev_training = False, live_graph_2D = True, use_HER = False)
     # dqn.test(NUM_OF_EPISODES_TEST, MAX_STEP_TEST, live_graph_2D = True)
     # dqn.test_q_value_control_auv(NUM_OF_EPISODES_TEST, MAX_STEP_TEST, live_graph_3D = False, live_graph_2D = True)
 
