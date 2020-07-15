@@ -60,11 +60,13 @@ NUM_OF_OBSTACLES = 7
 ENV_SIZE = 50.0
 ENV_GRID_CELL_SIDE_LENGTH = 5.0
 
+R_USEFUL_STATE = 10
+
 # the output size for the neural network
 NUM_OF_GRID_CELLS = int((int(ENV_SIZE) / int(ENV_GRID_CELL_SIDE_LENGTH)) ** 2)
 
 # the input size for the neural network
-STATE_SIZE = int(8 + NUM_OF_OBSTACLES * 4 + NUM_OF_GRID_CELLS * 3)
+STATE_SIZE = int(8 + NUM_OF_GRID_CELLS)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -100,20 +102,20 @@ def process_state_for_nn(state):
     Parameter:
         state - a direction of two np arrays
     """
-    # auv_tensor = torch.from_numpy(state['auv_pos'])
-    # shark_tensor = torch.from_numpy(state['shark_pos'])
+    auv_tensor = torch.from_numpy(state['auv_pos']).float()
+    shark_tensor = torch.from_numpy(state['shark_pos']).float()
 
     # obstacle_tensor = torch.from_numpy(state['obstacles_pos'])
     # obstacle_tensor = torch.flatten(obstacle_tensor)
 
-    rrt_grid_tensor = torch.from_numpy(state['rrt_grid_num_of_nodes_only'])
+    rrt_grid_tensor = torch.from_numpy(state['rrt_grid_num_of_nodes_only']).float()
     # rrt_grid_tensor = torch.flatten(rrt_grid_tensor)
 
     """habitat_tensor = torch.from_numpy(state['habitats_pos'])
     habitat_tensor = torch.flatten(habitat_tensor)"""
     
     # join tensors together
-    return rrt_grid_tensor.float()
+    return torch.cat((auv_tensor, shark_tensor, rrt_grid_tensor)).float()
 
 
 def extract_tensors(experiences):
@@ -214,60 +216,63 @@ def validate_new_habitat(new_habitat, new_hab_size, habitats_array):
 ============================================================================
 """
 
-class Motion_plan_state():
-    def __init__(self,x,y,z=0,theta=0,v=0,w=0, traj_time_stamp=0, plan_time_stamp=0, size=0):
+"""a wrapper class to represent states for motion planning
+    including x, y, z, theta, v, w, and time stamp"""
+class Motion_plan_state:
+    #class for motion planning
+
+    def __init__(self,x,y,z=0,theta=0,v=0,w=0, traj_time_stamp=0, plan_time_stamp=0, size=0, rl_state_id = None):
         self.x = x
         self.y = y
         self.z = z
         self.theta = theta
-        self.v = v  # linear velocity
-        self.w = w  # angular velocity
+        self.v = v #linear velocity
+        self.w = w #angulr velocity
         self.traj_time_stamp = traj_time_stamp
         self.plan_time_stamp = plan_time_stamp
         self.size = size
+        self.rl_state_id = rl_state_id
+
         self.parent = None
         self.path = []
         self.length = 0
         self.cost = []
 
-
     def __repr__(self):
-       # goal location in 2D
-        if self.z == 0 and self.theta == 0 and self.v == 0 and self.w == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
-            return ("MPS: [x=" + str(self.x) + ", y="  + str(self.y) + "]")
-        # goal location in 3D
-        elif self.theta == 0 and self.v == 0 and self.w == 0 and self.size == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
-            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) + "]"
-        # obstable location in 3D
-        elif self.size != 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
-            return "MPS: [x=" + str(self.x) + ", y=" + str(self.y) + ", z=" + str(self.z) + ", size=" + str(self.size) + "]"
-        # location for Dubins Path in 2D
-        elif self.z ==0 and self.v == 0 and self.w == 0:
-            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", theta=" + str(self.theta) + ", trag_time=" + str(self.traj_time_stamp) + ", plan_time=" + str(self.plan_time_stamp) + "]"
-        else: 
-            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) +\
-                ", theta=" + str(self.theta)  + ", v=" + str(self.v) + ", w=" + str(self.w) +\
-                ", trag_time=" + str(self.traj_time_stamp) +  ", plan_time="+  str(self.plan_time_stamp) + "]"
-
+        # # goal location in 2D
+        # if self.z == 0 and self.theta == 0 and self.v == 0 and self.w == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+        #     return ("MPS: [x=" + str(self.x) + ", y="  + str(self.y) + "]")
+        # # goal location in 3D
+        # elif self.theta == 0 and self.v == 0 and self.w == 0 and self.size == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+        #     return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) + "]"
+        # # obstable location in 3D
+        # elif self.size != 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+        #     return "MPS: [x=" + str(self.x) + ", y=" + str(self.y) + ", z=" + str(self.z) + ", size=" + str(self.size) + "]"
+        # # location for Dubins Path in 2D
+        # elif self.z ==0 and self.v == 0 and self.w == 0:
+        #     return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", theta=" + str(self.theta) + ", trag_time=" + str(self.traj_time_stamp) + ", plan_time=" + str(self.plan_time_stamp) + ", state_id=" +  str(self.rl_state_id) + "]"
+        # else: 
+        return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) +\
+            ", theta=" + str(self.theta)  + ", v=" + str(self.v) + ", w=" + str(self.w) +\
+            ", trag_time=" + str(self.traj_time_stamp) +  ", plan_time="+  str(self.plan_time_stamp) + ", state_id=" +  str(self.rl_state_id) + "]"
 
     def __str__(self):
-        # goal location in 2D
-        if self.z == 0 and self.theta == 0 and self.v == 0 and self.w == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
-            return ("MPS: [x=" + str(self.x) + ", y="  + str(self.y) + "]")
-        # goal location in 3D
-        elif self.theta == 0 and self.v == 0 and self.w == 0 and self.size == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
-            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) + "]"
-        # obstable location in 3D
-        elif self.size != 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
-            return "MPS: [x=" + str(self.x) + ", y=" + str(self.y) + ", z=" + str(self.z) + ", size=" + str(self.size) + "]"
-        # location for Dubins Path in 2D
-        elif self.z ==0 and self.v == 0 and self.w == 0:
-            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", theta=" + str(self.theta) + ", trag_time=" + str(self.traj_time_stamp) + ", plan_time=" + str(self.plan_time_stamp) + "]"
-        else: 
-            return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) +\
-                ", theta=" + str(self.theta)  + ", v=" + str(self.v) + ", w=" + str(self.w) +\
-                ", trag_time=" + str(self.traj_time_stamp) +  ", plan_time="+  str(self.plan_time_stamp) + "]"
-
+        # # goal location in 2D
+        # if self.z == 0 and self.theta == 0 and self.v == 0 and self.w == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+        #     return ("MPS: [x=" + str(self.x) + ", y="  + str(self.y) + "]")
+        # # goal location in 3D
+        # elif self.theta == 0 and self.v == 0 and self.w == 0 and self.size == 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+        #     return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) + "]"
+        # # obstable location in 3D
+        # elif self.size != 0 and self.traj_time_stamp == 0 and self.plan_time_stamp == 0:
+        #     return "MPS: [x=" + str(self.x) + ", y=" + str(self.y) + ", z=" + str(self.z) + ", size=" + str(self.size) + "]"
+        # # location for Dubins Path in 2D
+        # elif self.z ==0 and self.v == 0 and self.w == 0:
+        #     return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", theta=" + str(self.theta) + ", trag_time=" + str(self.traj_time_stamp) + ", plan_time=" + str(self.plan_time_stamp) + ", state_id=" +  str(self.rl_state_id) + "]"
+        # else: 
+        return "MPS: [x=" + str(self.x) + ", y="  + str(self.y) + ", z=" + str(self.z) +\
+            ", theta=" + str(self.theta)  + ", v=" + str(self.v) + ", w=" + str(self.w) +\
+            ", trag_time=" + str(self.traj_time_stamp) +  ", plan_time="+  str(self.plan_time_stamp) + ", state_id=" +  str(self.rl_state_id) + "]"
 
 """
 ============================================================================
@@ -278,14 +283,14 @@ class Motion_plan_state():
 """
 
 class Habitat():
-    def __init__(self, x, y, id, side_length = 1, num_of_time_visited = 0):
+    def __init__(self, x, y, id_in, side_length = 1, num_of_time_visited = 0):
         """
         A helper class to represent state of a habitat, which consists of many habitat cells
             including x, y, z, size, and the number of time visited
         """
         self.x = x
         self.y = y
-        self.id = id
+        self.id = id_in
         self.side_length = side_length
         self.num_of_time_visited = num_of_time_visited
 
@@ -424,6 +429,9 @@ class HabitatGrid():
     Class - Neural Network
 
 ============================================================================
+"""
+"""
+Class for building policy and target neural network
 """
 class Neural_network(nn.Module):
     def __init__(self, input_size, output_size, hidden_layer_1_in = 600, hidden_layer_1_out = 400, hidden_layer_2_out = 300, hidden_layer_3_out = 200):
@@ -620,7 +628,7 @@ class Agent():
             self.rate = EPS_END
         else:
             self.rate = self.strategy.get_exploration_rate(self.current_step)
-            
+
             # as the number of steps increases, the exploration rate will decrease
             self.current_step += 1
 
@@ -656,6 +664,9 @@ class Agent():
                 
                 # pick the grid cell with the largest q value
                 grid_cell_index = torch.argmax(processed_q_values_all_grid_cells).item()
+
+                if random.random() < RAND_PICK_RATE and RAND_PICK:
+                    grid_cell_index = random.choice(index_to_pick)
 
                 if DEBUG:
                     print("-----")
@@ -708,10 +719,19 @@ class AuvEnvManager():
             Motion_plan_state(x=34.0, y=17.0, size=3),\
             Motion_plan_state(x=37.0, y=8.0, size=5)\
         ]
+        # obstacle_array = [\
+        #     Motion_plan_state(x=12.0, y=38.0, size=4),\
+        #     Motion_plan_state(x=17.0, y=34.0, size=5),\
+        #     Motion_plan_state(x=20.0, y=29.0, size=4),\
+        #     Motion_plan_state(x=25.0, y=25.0, size=3),\
+        #     Motion_plan_state(x=29.0, y=20.0, size=4),\
+        #     Motion_plan_state(x=34.0, y=17.0, size=3),\
+        # ]
 
         boundary_array = [Motion_plan_state(x=0.0, y=0.0), Motion_plan_state(x = ENV_SIZE, y = ENV_SIZE)]
 
         # self.habitat_grid = HabitatGrid(habitat_bound_x, habitat_bound_y, habitat_bound_size_x, habitat_bound_size_y, HABITAT_SIDE_LENGTH, HABITAT_CELL_SIDE_LENGTH)
+
         if not LIMIT_TERMINAL_OUTPUT:
             print("===============================")
             print("Starting Positions")
@@ -758,20 +778,23 @@ class AuvEnvManager():
             self.env.live_graph.ax_2D.clear()
 
 
-    def take_action(self, chosen_grid_cell_index, t, max_step):
+    def take_action(self, chosen_grid_cell_index, step_num):
         """
         Parameter: 
             action - tensor of the format: tensor([v_index, w_index])
                 use the index from the action and take a step in environment
                 based on the chosen values for v and w
+            step_num - to allow us to identify the useful states
         """
         chosen_grid_cell_index = chosen_grid_cell_index.item()
         # we only care about the reward and whether or not the episode has ended
         # action is a tensor, so item() returns the value of a tensor (which is just a number)
-        self.current_state, reward, self.done, _ = self.env.step(chosen_grid_cell_index, t, max_step)
+        self.current_state, reward, self.done, _ = self.env.step(chosen_grid_cell_index, step_num)
 
         if DEBUG:
             print("=========================")
+            print("step num")
+            print(step_num)
             print("chosen grid cell index: ")
             print(chosen_grid_cell_index)
             print("chosen grid: ")
@@ -876,8 +899,8 @@ class QValues():
 class DQN():
     def __init__(self):
         # initialize the policy network and the target network
-        self.policy_net = Neural_network(NUM_OF_GRID_CELLS, NUM_OF_GRID_CELLS).to(DEVICE)
-        self.target_net = Neural_network(NUM_OF_GRID_CELLS, NUM_OF_GRID_CELLS).to(DEVICE)
+        self.policy_net = Neural_network(STATE_SIZE, NUM_OF_GRID_CELLS).to(DEVICE)
+        self.target_net = Neural_network(STATE_SIZE, NUM_OF_GRID_CELLS).to(DEVICE)
 
         self.hard_update(self.target_net, self.policy_net)
         self.target_net.eval()
@@ -1039,6 +1062,54 @@ class DQN():
         text = input("stop")
 
 
+    def extract_useful_states(self, path):
+        """
+        Parameter:
+            path - might be 1. list of motion plan state, representing the final path
+                            2. [BAD] a motion plan state, representing a node added to the tree
+                                (so the RRT planner was not able to find a valid path)
+                            3. [BAD] None, representing that there isn't any new node added to the tree
+                                (so the RRT planner was not able to find a valid path)
+        """
+        useful_state_idx_array = []
+
+        # path is a valid parameter, the rrt planner actually found a valid path from start to goal
+        if type(path) == list:
+            # add the first step into the useful states first
+            useful_state_idx_array.append(path[0].rl_state_id)
+            
+            for i in range(1, len(path)):
+                pt = path[i]
+                # prevent adding repeated state id or start and goal
+                if pt.rl_state_id != useful_state_idx_array[-1] and pt.rl_state_id != None:
+                    useful_state_idx_array.append(pt.rl_state_id)
+
+            # remove the first useful state because that state already receives a large final reward
+            useful_state_idx_array = useful_state_idx_array[1:]
+
+        return useful_state_idx_array
+
+
+    def post_process_reward_array_from_path(self, reward_array, useful_state_idx_array):
+        """
+        Modify the reward by boosting the reward for useful states
+
+        Parameters:
+            reward_array - stores the reward for all the states
+            useful_state_idx_array - store the step number of the useful states
+                (states that contribute to creating the final path)
+
+        Warning:
+            This function modifies the reward_array directly
+        """
+        for idx in useful_state_idx_array:
+            # we have to do idx-1 because the first for loop starts out at 1
+            # we have to subtract by 1 to get the right index to modify the reward
+            reward_array[idx-1] =  torch.tensor([R_USEFUL_STATE], device=DEVICE).float()
+        
+        return reward_array
+
+
     def save_real_experiece(self, state, next_state, action, reward, done):
         """old_range = calculate_range(state['auv_pos'], state['shark_pos'])"""
 
@@ -1048,13 +1119,13 @@ class DQN():
             next_state['habitats_pos'], visited_habitat_cell)"""
         
         """reward = self.em.get_reward_with_habitats_no_shark(next_state['auv_pos'], next_state['habitats_pos'], visited_habitat_cell, next_state['auv_dist_from_walls'])"""
-        
-        self.memory.push(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done, torch.from_numpy(next_state["has_node"])))
 
-        # print("**********************")
-        # print("real experience")
-        # print(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done))
-        # text = input("stop")
+        self.memory.push(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done, torch.from_numpy(next_state["has_node"])))
+        # if reward.item() == 10.0 or reward.item() == 300.0:
+        #     print("**********************")
+        #     print("real experience")
+        #     print(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done, torch.from_numpy(next_state["has_node"])))
+        #     text = input("stop")
 
     
     def generate_extra_goals(self, time_step, next_state_array):
@@ -1189,7 +1260,7 @@ class DQN():
 
                 action_array.append(chosen_grid_cell_index)
 
-                score = self.em.take_action(chosen_grid_cell_index, t, max_step)
+                score = self.em.take_action(chosen_grid_cell_index, t)
                 eps_reward += score.item()
                 reward_array.append(score)
 
@@ -1201,8 +1272,8 @@ class DQN():
                 if (eps % RENDER_EVERY == 0) and live_graph_2D:
                     self.em.render(print_state = False, live_graph_2D = live_graph_2D)
                     
-                    # if DEBUG:
-                    #     text = input("stop")
+                    if DEBUG:
+                        text = input("stop")
 
                 state = next_state
 
@@ -1213,11 +1284,13 @@ class DQN():
             
             num_of_bad_choices.append(self.agent.neural_net_bad_choice)
             num_of_bad_choices_over_total_choices.append(self.agent.neural_net_choice)
-
             episode_durations.append(iteration)
-
             total_reward_in_training.append(eps_reward)
+            
+            useful_state_idx_array = self.extract_useful_states(state["path"])
 
+            reward_array = self.post_process_reward_array_from_path(reward_array, useful_state_idx_array)
+            
             # reset the state before we start updating the neural network
             state = self.em.reset()
 
@@ -1230,7 +1303,7 @@ class DQN():
                 next_state = next_state_array[t]
                 done = done_array[t]
                 reward = reward_array[t]
-                
+
                 # store the actual experience that the auv has in the first loop into the memory
                 self.save_real_experiece(state, next_state, action, reward, done)
 
@@ -1248,6 +1321,10 @@ class DQN():
                     if not LIMIT_TERMINAL_OUTPUT:
                         print("UPDATE TARGET NETWORK")
                     self.target_net.load_state_dict(self.policy_net.state_dict())
+
+            # print("*********************************")
+            # print("final state")
+            # print(state)
 
             if not LIMIT_TERMINAL_OUTPUT:
                 if self.loss_in_eps != []:
@@ -1329,7 +1406,7 @@ class DQN():
             for t in range(1, max_step):
                 chosen_grid_cell_index = self.agent.select_action(state, self.policy_net)
 
-                reward = self.em.take_action(chosen_grid_cell_index, t, max_step)
+                reward = self.em.take_action(chosen_grid_cell_index, t)
 
                 eps_reward += reward.item()
 
@@ -1350,6 +1427,7 @@ class DQN():
             print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
             print("+++++++++++++++++++++++++++++")
 
+            total_reward_array.append(eps_reward)
 
         self.em.close()
 
@@ -1361,12 +1439,16 @@ class DQN():
 
         text = input("stop")
 
-
         print("total reward")
         print(total_reward_array)
         print("average total reward")
         print(np.mean(total_reward_array))
         print("-----------------")
+
+        text = input("stop")
+
+        print("success count")
+        print(success_count)
 
 
 
@@ -1398,7 +1480,7 @@ class DQN():
             for t in range(1, max_step):
                 chosen_grid_cell_index = self.agent.select_action(state, self.policy_net, testing = True)
 
-                reward = self.em.take_action(chosen_grid_cell_index, t, max_step)
+                reward = self.em.take_action(chosen_grid_cell_index, t)
 
                 eps_reward += reward.item()
 
@@ -1416,8 +1498,8 @@ class DQN():
                 bad_choices_over_total_choices_array.append(float(self.agent.neural_net_bad_choice) / float(self.agent.neural_net_choice))
             else:
                 bad_choices_over_total_choices_array.append(0.0)
-            
-            if not LIMIT_TERMINAL_OUTPUT:  
+
+            if not LIMIT_TERMINAL_OUTPUT:   
                 print("+++++++++++++++++++++++++++++")
                 print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
                 print("+++++++++++++++++++++++++++++")
