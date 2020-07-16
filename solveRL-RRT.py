@@ -31,7 +31,7 @@ DIST = 20.0
 NUM_OF_EPISODES = 1000
 MAX_STEP = 300
 
-NUM_OF_EPISODES_TEST =  50
+NUM_OF_EPISODES_TEST =  250
 MAX_STEP_TEST = 300
 
 N_V = 7
@@ -66,7 +66,7 @@ R_USEFUL_STATE = 10
 NUM_OF_GRID_CELLS = int((int(ENV_SIZE) / int(ENV_GRID_CELL_SIDE_LENGTH)) ** 2)
 
 # the input size for the neural network
-STATE_SIZE = int(8 + NUM_OF_GRID_CELLS)
+STATE_SIZE = int(8 + 4 * NUM_OF_OBSTACLES + NUM_OF_GRID_CELLS)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -105,8 +105,8 @@ def process_state_for_nn(state):
     auv_tensor = torch.from_numpy(state['auv_pos']).float()
     shark_tensor = torch.from_numpy(state['shark_pos']).float()
 
-    # obstacle_tensor = torch.from_numpy(state['obstacles_pos'])
-    # obstacle_tensor = torch.flatten(obstacle_tensor)
+    obstacle_tensor = torch.from_numpy(state['obstacles_pos'])
+    obstacle_tensor = torch.flatten(obstacle_tensor).float()
 
     rrt_grid_tensor = torch.from_numpy(state['rrt_grid_num_of_nodes_only']).float()
     # rrt_grid_tensor = torch.flatten(rrt_grid_tensor)
@@ -115,7 +115,7 @@ def process_state_for_nn(state):
     habitat_tensor = torch.flatten(habitat_tensor)"""
     
     # join tensors together
-    return torch.cat((auv_tensor, shark_tensor, rrt_grid_tensor)).float()
+    return torch.cat((auv_tensor, shark_tensor, obstacle_tensor, rrt_grid_tensor)).float()
 
 
 def extract_tensors(experiences):
@@ -179,21 +179,72 @@ def validate_new_obstacle(new_obstacle, new_obs_size, auv_init_pos, shark_init_p
 
 def generate_rand_obstacles(auv_init_pos, shark_init_pos, num_of_obstacles, shark_min_x, shark_max_x,  shark_min_y, shark_max_y):
     """
-    """
+    """ 
     obstacle_array = []
-    for _ in range(num_of_obstacles):
-        obs_x = np.random.uniform(shark_min_x, shark_max_x)
-        obs_y = np.random.uniform(shark_min_y, shark_max_y)
-        obs_size = np.random.randint(1,5)
-        # to prevent this from going into an infinite loop
-        counter = 0
-        while validate_new_obstacle([obs_x, obs_y], obs_size, auv_init_pos, shark_init_pos, obstacle_array) and counter < 100:
-            obs_x = np.random.uniform(shark_min_x, shark_max_x)
-            obs_y = np.random.uniform(shark_min_y, shark_max_y)
-            counter += 1
-        obstacle_array.append(Motion_plan_state(x = obs_x, y = obs_y, z=-5, size = obs_size))
 
-    return obstacle_array   
+    # hard-code random obstacles
+    # obstacle # 1
+    obs_x = np.random.uniform(10, 17)
+    obs_y = np.random.uniform(34, 41)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+
+    # obstacle # 2
+    obs_x = np.random.uniform(17, 21)
+    obs_y = np.random.uniform(29, 36)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+
+    # obstacle # 3
+    obs_x = np.random.uniform(20, 25)
+    obs_y = np.random.uniform(23, 30)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+
+    # obstacle # 4
+    obs_x = np.random.uniform(24, 29)
+    obs_y = np.random.uniform(19, 25)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+
+    # obstacle # 5
+    obs_x = np.random.uniform(27, 33)
+    obs_y = np.random.uniform(17, 24)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+
+    # obstacle # 6
+    obs_x = np.random.uniform(32, 36)
+    obs_y = np.random.uniform(14, 19)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+
+    # obstacle # 7
+    obs_x = np.random.uniform(36, 40)
+    obs_y = np.random.uniform(7, 10)
+    obs_size = np.random.randint(3,6)
+
+    obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
+    
+    # for _ in range(num_of_obstacles):
+    #     obs_x = np.random.uniform(shark_min_x, shark_max_x)
+    #     obs_y = np.random.uniform(shark_min_y, shark_max_y)
+    #     obs_size = np.random.randint(1,5)
+    #     # to prevent this from going into an infinite loop
+    #     counter = 0
+    #     while validate_new_obstacle([obs_x, obs_y], obs_size, auv_init_pos, shark_init_pos, obstacle_array) and counter < 100:
+    #         obs_x = np.random.uniform(shark_min_x, shark_max_x)
+    #         obs_y = np.random.uniform(shark_min_y, shark_max_y)
+    #         counter += 1
+    #     obstacle_array.append(Motion_plan_state(x = obs_x, y = obs_y, z=-5, size = obs_size))
+
+    return obstacle_array 
 
 
 def validate_new_habitat(new_habitat, new_hab_size, habitats_array):
@@ -707,18 +758,23 @@ class AuvEnvManager():
 
     
     def init_env_randomly(self, dist = DIST):
-        auv_init_pos = Motion_plan_state(x = 10.0, y = 10.0, z = -5.0, theta = 0.0)
-        shark_init_pos = Motion_plan_state(x = 35.0, y = 40.0, z = -5.0, theta = 0.0)
-        # obstacle_array = generate_rand_obstacles(auv_init_pos, shark_init_pos, NUM_OF_OBSTACLES, shark_min_x, shark_max_x, shark_min_y, shark_max_y)
-        obstacle_array = [\
-            Motion_plan_state(x=12.0, y=38.0, size=4),\
-            Motion_plan_state(x=17.0, y=34.0, size=5),\
-            Motion_plan_state(x=20.0, y=29.0, size=4),\
-            Motion_plan_state(x=25.0, y=25.0, size=3),\
-            Motion_plan_state(x=29.0, y=20.0, size=4),\
-            Motion_plan_state(x=34.0, y=17.0, size=3),\
-            Motion_plan_state(x=37.0, y=8.0, size=5)\
-        ]
+        auv_min_x = 5.0
+        auv_max_x = 15.0
+        auv_min_y = 5.0
+        auv_max_y = 15.0
+
+        shark_min_x = 35.0
+        shark_max_x = 45.0
+        shark_min_y = 35.0
+        shark_max_y = 45.0
+
+        auv_init_pos = Motion_plan_state(x = np.random.uniform(auv_min_x, auv_max_x), y = np.random.uniform(auv_min_y, auv_max_y), z = -5.0, theta = np.random.uniform(-np.pi, np.pi))
+        shark_init_pos = Motion_plan_state(x = np.random.uniform(shark_min_x, shark_max_x), y = np.random.uniform(shark_min_y, shark_max_y), z = -5.0, theta = np.random.uniform(-np.pi, np.pi))
+
+        # auv_init_pos = Motion_plan_state(x = 10.0, y = 10.0, z = -5.0, theta = 0.0)
+        # shark_init_pos = Motion_plan_state(x = 35.0, y = 40.0, z = -5.0, theta = 0.0)
+        obstacle_array = generate_rand_obstacles(auv_init_pos, shark_init_pos, NUM_OF_OBSTACLES, shark_min_x, shark_max_x, shark_min_y, shark_max_y)
+
         # obstacle_array = [\
         #     Motion_plan_state(x=12.0, y=38.0, size=4),\
         #     Motion_plan_state(x=17.0, y=34.0, size=5),\
@@ -726,6 +782,7 @@ class AuvEnvManager():
         #     Motion_plan_state(x=25.0, y=25.0, size=3),\
         #     Motion_plan_state(x=29.0, y=20.0, size=4),\
         #     Motion_plan_state(x=34.0, y=17.0, size=3),\
+        #     Motion_plan_state(x=37.0, y=8.0, size=5)\
         # ]
 
         boundary_array = [Motion_plan_state(x=0.0, y=0.0), Motion_plan_state(x = ENV_SIZE, y = ENV_SIZE)]
@@ -998,6 +1055,27 @@ class DQN():
             bad_choices_array.append(result["bad_choices"])
             bad_choices_over_total_choices_array.append(result["bad_choices_over_total_choices"])
 
+        # print out the result so that we can save for later
+        print("episode tested")
+        print(episode_array)
+
+        # for plot #1 
+        print("total reward array")
+        print(avg_total_reward_array)
+        print("average episode duration")
+        print(avg_episode_duration_array)
+
+        # for plot #2
+        print("success")
+        print(success_rate_array)
+        print(success_rate_array_norm)
+
+        # for plot #2
+        print("choice")
+        print(bad_choices_array)
+        print(bad_choices_over_total_choices_array)
+        text = input("stop")
+
         if PLOT_INTERMEDIATE_TESTING:
             # begin plotting the graph
             # plot #1: 
@@ -1035,31 +1113,6 @@ class DQN():
 
             self.plot_summary_graph(episode_array, bad_choices_array, upper_plot_ylabel, upper_plot_title, \
                 bad_choices_over_total_choices_array, lower_plot_ylabel, lower_plot_title)
-
-        
-        # print out the result so that we can save for later
-        print("episode tested")
-        print(episode_array)
-        text = input("stop")
-
-        # for plot #1 
-        print("total reward array")
-        print(avg_total_reward_array)
-        print("average episode duration")
-        print(avg_episode_duration_array)
-        text = input("stop")
-
-        # for plot #2
-        print("success")
-        print(success_rate_array)
-        print(success_rate_array_norm)
-        text = input("stop")
-
-        # for plot #2
-        print("choice")
-        print(bad_choices_array)
-        print(bad_choices_over_total_choices_array)
-        text = input("stop")
 
 
     def extract_useful_states(self, path):
