@@ -28,10 +28,10 @@ Experience = namedtuple('Experience', ('state', 'action', 'next_state', 'reward'
 # define the range between the starting point of the auv and shark
 DIST = 20.0
 
-NUM_OF_EPISODES = 1000
+NUM_OF_EPISODES = 10
 MAX_STEP = 300
 
-NUM_OF_EPISODES_TEST =  250
+NUM_OF_EPISODES_TEST =  5
 MAX_STEP_TEST = 300
 
 N_V = 7
@@ -62,11 +62,13 @@ ENV_GRID_CELL_SIDE_LENGTH = 5.0
 
 R_USEFUL_STATE = 10
 
+NUM_OF_SUBSECTIONS_IN_GRID_CELL = 4
+
 # the output size for the neural network
-NUM_OF_GRID_CELLS = int((int(ENV_SIZE) / int(ENV_GRID_CELL_SIDE_LENGTH)) ** 2)
+NUM_OF_GRID_CELLS = int(((int(ENV_SIZE) / int(ENV_GRID_CELL_SIDE_LENGTH)) ** 2) * NUM_OF_SUBSECTIONS_IN_GRID_CELL)
 
 # the input size for the neural network
-STATE_SIZE = int(8 + 4 * NUM_OF_OBSTACLES + NUM_OF_GRID_CELLS)
+STATE_SIZE = int(8 + NUM_OF_GRID_CELLS)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -75,7 +77,7 @@ SAVE_EVERY = 10
 # how many episode should we render the model
 RENDER_EVERY = 100
 # how many episode should we run a test on the model
-TEST_EVERY = 50
+TEST_EVERY = 5
 
 FILTER_IN_UPDATING_NN = True
 
@@ -85,7 +87,7 @@ RAND_PICK = False
 RAND_PICK_RATE = 0.75
 
 # to limit the terminal output for training over high computing resources
-PLOT_INTERMEDIATE_TESTING = False
+PLOT_INTERMEDIATE_TESTING = True
 LIMIT_TERMINAL_OUTPUT = False
 
 """
@@ -111,11 +113,15 @@ def process_state_for_nn(state):
     rrt_grid_tensor = torch.from_numpy(state['rrt_grid_num_of_nodes_only']).float()
     # rrt_grid_tensor = torch.flatten(rrt_grid_tensor)
 
+    rrt_grid_all_info_tensor = torch.from_numpy(state['rrt_grid']).float()
+    rrt_grid_all_info_tensor = torch.flatten(rrt_grid_all_info_tensor)
+
     """habitat_tensor = torch.from_numpy(state['habitats_pos'])
     habitat_tensor = torch.flatten(habitat_tensor)"""
     
     # join tensors together
-    return torch.cat((auv_tensor, shark_tensor, obstacle_tensor, rrt_grid_tensor)).float()
+    return torch.cat((auv_tensor, shark_tensor, rrt_grid_tensor)).float()
+    # return rrt_grid_all_info_tensor.float()
 
 
 def extract_tensors(experiences):
@@ -184,44 +190,44 @@ def generate_rand_obstacles(auv_init_pos, shark_init_pos, num_of_obstacles, shar
 
     # hard-code random obstacles
     # obstacle # 1
-    obs_x = np.random.uniform(10, 17)
+    obs_x = np.random.uniform(12, 17)
     obs_y = np.random.uniform(34, 41)
-    obs_size = np.random.randint(3,6)
+    obs_size = np.random.randint(4,6)
 
     obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
 
     # obstacle # 2
     obs_x = np.random.uniform(17, 21)
     obs_y = np.random.uniform(29, 36)
-    obs_size = np.random.randint(3,6)
+    obs_size = np.random.randint(5,7)
 
     obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
 
     # obstacle # 3
     obs_x = np.random.uniform(20, 25)
     obs_y = np.random.uniform(23, 30)
-    obs_size = np.random.randint(3,6)
+    obs_size = np.random.randint(6,8)
 
     obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
 
     # obstacle # 4
     obs_x = np.random.uniform(24, 29)
     obs_y = np.random.uniform(19, 25)
-    obs_size = np.random.randint(3,6)
+    obs_size = np.random.randint(4,6)
 
     obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
 
     # obstacle # 5
     obs_x = np.random.uniform(27, 33)
     obs_y = np.random.uniform(17, 24)
-    obs_size = np.random.randint(3,6)
+    obs_size = np.random.randint(4,6)
 
     obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
 
     # obstacle # 6
     obs_x = np.random.uniform(32, 36)
     obs_y = np.random.uniform(14, 19)
-    obs_size = np.random.randint(3,6)
+    obs_size = np.random.randint(6,8)
 
     obstacle_array.append(Motion_plan_state(x=obs_x, y=obs_y, size=obs_size))
 
@@ -244,7 +250,7 @@ def generate_rand_obstacles(auv_init_pos, shark_init_pos, num_of_obstacles, shar
     #         counter += 1
     #     obstacle_array.append(Motion_plan_state(x = obs_x, y = obs_y, z=-5, size = obs_size))
 
-    return obstacle_array 
+    return obstacle_array   
 
 
 def validate_new_habitat(new_habitat, new_hab_size, habitats_array):
@@ -768,27 +774,26 @@ class AuvEnvManager():
         shark_min_y = 35.0
         shark_max_y = 45.0
 
-        auv_init_pos = Motion_plan_state(x = np.random.uniform(auv_min_x, auv_max_x), y = np.random.uniform(auv_min_y, auv_max_y), z = -5.0, theta = np.random.uniform(-np.pi, np.pi))
-        shark_init_pos = Motion_plan_state(x = np.random.uniform(shark_min_x, shark_max_x), y = np.random.uniform(shark_min_y, shark_max_y), z = -5.0, theta = np.random.uniform(-np.pi, np.pi))
+        # auv_init_pos = Motion_plan_state(x = np.random.uniform(auv_min_x, auv_max_x), y = np.random.uniform(auv_min_y, auv_max_y), z = -5.0, theta = np.random.uniform(-np.pi, np.pi))
+        # shark_init_pos = Motion_plan_state(x = np.random.uniform(shark_min_x, shark_max_x), y = np.random.uniform(shark_min_y, shark_max_y), z = -5.0, theta = np.random.uniform(-np.pi, np.pi))
 
-        # auv_init_pos = Motion_plan_state(x = 10.0, y = 10.0, z = -5.0, theta = 0.0)
-        # shark_init_pos = Motion_plan_state(x = 35.0, y = 40.0, z = -5.0, theta = 0.0)
-        obstacle_array = generate_rand_obstacles(auv_init_pos, shark_init_pos, NUM_OF_OBSTACLES, shark_min_x, shark_max_x, shark_min_y, shark_max_y)
+        auv_init_pos = Motion_plan_state(x = 10.0, y = 10.0, z = -5.0, theta = 0.0)
+        shark_init_pos = Motion_plan_state(x = 35.0, y = 40.0, z = -5.0, theta = 0.0)
+        # obstacle_array = generate_rand_obstacles(auv_init_pos, shark_init_pos, NUM_OF_OBSTACLES, shark_min_x, shark_max_x, shark_min_y, shark_max_y)
 
-        # obstacle_array = [\
-        #     Motion_plan_state(x=12.0, y=38.0, size=4),\
-        #     Motion_plan_state(x=17.0, y=34.0, size=5),\
-        #     Motion_plan_state(x=20.0, y=29.0, size=4),\
-        #     Motion_plan_state(x=25.0, y=25.0, size=3),\
-        #     Motion_plan_state(x=29.0, y=20.0, size=4),\
-        #     Motion_plan_state(x=34.0, y=17.0, size=3),\
-        #     Motion_plan_state(x=37.0, y=8.0, size=5)\
-        # ]
+        obstacle_array = [\
+            Motion_plan_state(x=12.0, y=38.0, size=4),\
+            Motion_plan_state(x=17.0, y=34.0, size=5),\
+            Motion_plan_state(x=20.0, y=29.0, size=4),\
+            Motion_plan_state(x=25.0, y=25.0, size=3),\
+            Motion_plan_state(x=29.0, y=20.0, size=4),\
+            Motion_plan_state(x=34.0, y=17.0, size=3),\
+            Motion_plan_state(x=37.0, y=8.0, size=5)\
+        ]
 
         boundary_array = [Motion_plan_state(x=0.0, y=0.0), Motion_plan_state(x = ENV_SIZE, y = ENV_SIZE)]
 
         # self.habitat_grid = HabitatGrid(habitat_bound_x, habitat_bound_y, habitat_bound_size_x, habitat_bound_size_y, HABITAT_SIDE_LENGTH, HABITAT_CELL_SIDE_LENGTH)
-
         if not LIMIT_TERMINAL_OUTPUT:
             print("===============================")
             print("Starting Positions")
@@ -804,7 +809,7 @@ class AuvEnvManager():
         if DEBUG:
             text = input("stop")
 
-        return self.env.init_env(auv_init_pos, shark_init_pos, boundary_array = boundary_array, grid_cell_side_length = ENV_GRID_CELL_SIDE_LENGTH, obstacle_array = obstacle_array)
+        return self.env.init_env(auv_init_pos, shark_init_pos, boundary_array = boundary_array, grid_cell_side_length = ENV_GRID_CELL_SIDE_LENGTH, obstacle_array = obstacle_array, num_of_subsections=NUM_OF_SUBSECTIONS_IN_GRID_CELL)
 
 
     def reset(self):
@@ -1074,6 +1079,7 @@ class DQN():
         print("choice")
         print(bad_choices_array)
         print(bad_choices_over_total_choices_array)
+
         text = input("stop")
 
         if PLOT_INTERMEDIATE_TESTING:
@@ -1174,11 +1180,12 @@ class DQN():
         """reward = self.em.get_reward_with_habitats_no_shark(next_state['auv_pos'], next_state['habitats_pos'], visited_habitat_cell, next_state['auv_dist_from_walls'])"""
 
         self.memory.push(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done, torch.from_numpy(next_state["has_node"])))
-        # if reward.item() == 10.0 or reward.item() == 300.0:
-        #     print("**********************")
-        #     print("real experience")
-        #     print(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done, torch.from_numpy(next_state["has_node"])))
-        #     text = input("stop")
+
+        if reward.item() == 10.0 or reward.item() == 300.0:
+            print("**********************")
+            print("real experience")
+            print(Experience(process_state_for_nn(state), action, process_state_for_nn(next_state), reward, done, torch.from_numpy(next_state["has_node"])))
+            text = input("stop")
 
     
     def generate_extra_goals(self, time_step, next_state_array):
@@ -1378,7 +1385,6 @@ class DQN():
             # print("*********************************")
             # print("final state")
             # print(state)
-
             if not LIMIT_TERMINAL_OUTPUT:
                 if self.loss_in_eps != []:
                     avg_loss = np.mean(self.loss_in_eps)
@@ -1476,9 +1482,10 @@ class DQN():
             if live_graph_2D:
                 self.em.reset_render_graph(live_graph_2D = live_graph_2D)
             
-            print("+++++++++++++++++++++++++++++")
-            print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
-            print("+++++++++++++++++++++++++++++")
+            if not LIMIT_TERMINAL_OUTPUT:
+                print("+++++++++++++++++++++++++++++")
+                print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
+                print("+++++++++++++++++++++++++++++")
 
             total_reward_array.append(eps_reward)
 
@@ -1551,11 +1558,10 @@ class DQN():
                 bad_choices_over_total_choices_array.append(float(self.agent.neural_net_bad_choice) / float(self.agent.neural_net_choice))
             else:
                 bad_choices_over_total_choices_array.append(0.0)
-
-            if not LIMIT_TERMINAL_OUTPUT:   
-                print("+++++++++++++++++++++++++++++")
-                print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
-                print("+++++++++++++++++++++++++++++")
+               
+            print("+++++++++++++++++++++++++++++")
+            print("Test Episode # ", eps, "end with reward: ", eps_reward, " used time: ", episode_durations[-1])
+            print("+++++++++++++++++++++++++++++")
 
             total_reward_array.append(eps_reward)
 
@@ -1585,7 +1591,7 @@ class DQN():
 def main():
     dqn = DQN()
    
-    dqn.train(NUM_OF_EPISODES, MAX_STEP, load_prev_training = False, live_graph_2D = True, use_HER = False)
+    dqn.train(NUM_OF_EPISODES, MAX_STEP, load_prev_training = False, live_graph_2D = False, use_HER = False)
     # dqn.test(NUM_OF_EPISODES_TEST, MAX_STEP_TEST, live_graph_2D = True)
     # dqn.test_q_value_control_auv(NUM_OF_EPISODES_TEST, MAX_STEP_TEST, live_graph_3D = False, live_graph_2D = True)
 
